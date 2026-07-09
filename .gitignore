@@ -1,5 +1,7 @@
 # 环境变量（含密码）
 .env
+config/.env
+config/*.env
 
 # 编译产物
 *.exe
