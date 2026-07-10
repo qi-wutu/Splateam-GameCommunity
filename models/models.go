@@ -8,3 +8,20 @@ type User struct {
 	Password string `gorm:"not null" `
 	UserName string `gorm:"not null" `
 }
+
+type Party struct {
+	gorm.Model
+	Title     string
+	Game      string
+	Playernum int
+	MaxNum    int
+	OwnerID   string
+	OwnerName string
+}
+
+type PartyMember struct {
+	gorm.Model
+	PartyID int
+	UserID  int
+	status  string
+}

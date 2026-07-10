@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -18,4 +19,32 @@ func GenerateJWT(username string) (string, error) {
 func CheckPassword(password string, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+
+// 验证JWT
+func ParseJWT(tokenString string) (string, error) {
+	//去除bearer前缀
+	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+		tokenString = tokenString[7:]
+	}
+	//通过匿名函数解析token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("Unexpected Signing Method")
+		}
+		return []byte("secret"), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	//第一行类型强转，然后找Username
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		username, ok := claims["username"].(string)
+		if !ok {
+			return "", errors.New("Username claim is not success")
+		}
+		return username, nil
+	}
+	return "", err
+
 }
