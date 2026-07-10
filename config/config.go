@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"splatoon-backend/models"
+	"time"
 
 	"github.com/joho/godotenv"
 	"gorm.io/driver/mysql"
@@ -33,16 +36,24 @@ func InitMySQL() {
 	ServerPort = GetEnv("SERVER_PORT", "8080")
 
 	// 连接 MySQL,这里dsn直接从env中读取后拼接
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=True&loc=Local",
 		dbUser, dbPass, dbHost, dbPort, dbName)
 	var err error
 	Db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+
 	if err != nil {
 		panic("数据库连接失败：" + err.Error())
 	}
+
+	sqldb, err := Db.DB()
+	sqldb.SetMaxOpenConns(100)
+	sqldb.SetMaxIdleConns(10)
+	sqldb.SetConnMaxLifetime(time.Hour)
+
+	if err != nil {
+		log.Fatalf("Error setting database connection pool: %v", err)
+	}
+
 	fmt.Println("MySQL 连接成功")
-
-	// 自动建表（后续加 models）
-	// db.AutoMigrate(&models.User{}, &models.Party{})
-
+	Db.AutoMigrate(&models.User{})
 }

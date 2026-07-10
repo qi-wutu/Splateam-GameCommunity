@@ -2,6 +2,7 @@ package router
 
 import (
 	"splatoon-backend/config"
+	"splatoon-backend/controller"
 
 	"github.com/gin-gonic/gin"
 )
@@ -9,11 +10,12 @@ import (
 func SetupRouter() *gin.Engine {
 	// Gin 路由
 	r := gin.Default()
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "pong",
-		})
-	})
+	User := r.Group("/user")
+	{
+		// 用户注册登录
+		User.POST("/register", controller.RegisterUser)
+		User.POST("/login", controller.Login)
+	}
 
 	// 健康检查（包含数据库状态）
 	r.GET("/health", func(c *gin.Context) {

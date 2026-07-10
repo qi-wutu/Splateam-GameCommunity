@@ -1,0 +1,40 @@
+MySQL 连接成功
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] POST   /user/register            --> splatoon-backend/controller.RegisterUser (3 handlers)
+[GIN-debug] POST   /user/login               --> splatoon-backend/controller.Login (3 handlers)
+[GIN-debug] GET    /health                   --> splatoon-backend/router.SetupRouter.func1 (3 handlers)
+🚀 服务启动在 :8080
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] POST   /user/register            --> splatoon-backend/controller.RegisterUser (3 handlers)
+[GIN-debug] POST   /user/login               --> splatoon-backend/controller.Login (3 handlers)
+[GIN-debug] GET    /health                   --> splatoon-backend/router.SetupRouter.func1 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+
+2026/07/10 18:00:46 [31;1mD:/CCWorkSpace/splatoon-backend/service/auth_service.go:31 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE email = 'test_login@test.com'  AND `users`.`deleted_at` IS NULL ORDER BY `users`.`id` LIMIT 1
+DEBUG username before save: "测试玩家"
+[GIN] 2026/07/10 - 18:00:46 | 200 |  48.31ms |             ::1 | POST     "/user/register"
+
+2026/07/10 18:00:54 [31;1mD:/CCWorkSpace/splatoon-backend/service/auth_service.go:31 [35;1mrecord not found
+[0m[33m[1.003ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE email = 'test_login2@test.com'  AND `users`.`deleted_at` IS NULL ORDER BY `users`.`id` LIMIT 1
+DEBUG username before save: "TestPlayer"
+[GIN] 2026/07/10 - 18:00:54 | 200 |  41.91ms |             ::1 | POST     "/user/register"
+[GIN] 2026/07/10 - 18:00:59 | 200 |  39.82ms |             ::1 | POST     "/user/login"
+[GIN] 2026/07/10 - 18:00:59 | 400 |  41.14ms |             ::1 | POST     "/user/login"
+
+2026/07/10 18:00:59 [31;1mD:/CCWorkSpace/splatoon-backend/service/auth_service.go:62 [35;1mrecord not found
+[0m[33m[0.507ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE email = 'nobody@test.com' AND `users`.`deleted_at` IS NULL ORDER BY `users`.`id` LIMIT 1
+[GIN] 2026/07/10 - 18:00:59 | 400 |  507.2µs |             ::1 | POST     "/user/login"
+[GIN] 2026/07/10 - 18:00:59 | 200 |       0s |             ::1 | GET      "/health"
