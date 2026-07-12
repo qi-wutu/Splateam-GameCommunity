@@ -1,0 +1,1 @@
+- [Leave 硬删 BUG](leave-party-hard-delete.md) — LeaveParty 使用 Unscoped 硬删的原因和影响

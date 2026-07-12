@@ -13,16 +13,19 @@ func SetupRouter() *gin.Engine {
 	// 公开路由
 	auth := r.Group("/api/auth")
 	{
-		// 用户注册登录
 		auth.POST("/register", controller.RegisterUser)
 		auth.POST("/login", controller.Login)
 	}
+	r.GET("/api/party", controller.PartyList)
 
 	// 受保护路由
 	api := r.Group("/api")
 	api.Use(middlewares.AuthMiddleware())
 	{
-		// 后续功能放这里
+		api.POST("/party", controller.CreateParty)
+		api.DELETE("/party/:id", controller.DeleteParty)
+		api.POST("/party/:id/join", controller.JoinParty)
+		api.POST("/party/:id/leave", controller.LeaveParty)
 	}
 
 	return r

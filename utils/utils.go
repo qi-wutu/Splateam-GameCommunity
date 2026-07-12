@@ -2,6 +2,8 @@ package utils
 
 import (
 	"errors"
+	"splatoon-backend/config"
+	"splatoon-backend/models"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -47,4 +49,10 @@ func ParseJWT(tokenString string) (string, error) {
 	}
 	return "", err
 
+}
+
+func RuserinP(userID string, partyID string) bool {
+	var member models.PartyMember
+	err := config.Db.Where("user_id = ? AND party_id = ?", userID, partyID).First(&member).Error
+	return err == nil
 }

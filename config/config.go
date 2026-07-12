@@ -55,5 +55,5 @@ func InitMySQL() {
 	}
 
 	fmt.Println("MySQL 连接成功")
-	Db.AutoMigrate(&models.User{})
+	Db.AutoMigrate(&models.User{}, &models.Party{}, &models.PartyMember{})
 }

@@ -11,17 +11,17 @@ type User struct {
 
 type Party struct {
 	gorm.Model
-	Title     string
-	Game      string
-	Playernum int
-	MaxNum    int
-	OwnerID   string
-	OwnerName string
+	Title     string `gorm:"not null"`
+	Game      string `gorm:"not null"`
+	Playernum int    `gorm:"not null"`
+	MaxNum    int    `gorm:"not null"`
+	OwnerID   string `gorm:"type:varchar(191);not null;index"`
+	OwnerName string `gorm:"not null"`
 }
 
 type PartyMember struct {
 	gorm.Model
-	PartyID int
-	UserID  int
-	status  string
+	PartyID uint   `gorm:"not null;uniqueIndex:idx_party_user"`
+	UserID  string `gorm:"type:varchar(191);not null;uniqueIndex:idx_party_user"`
+	Status  string `gorm:"not null;default:JOINED"`
 }
