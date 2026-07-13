@@ -2,18 +2,19 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"splatoon-backend/models"
 	"time"
 
 	"github.com/joho/godotenv"
+	msql "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 var Db *gorm.DB
 var ServerPort string
+var JwtSecret string
 
 func GetEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -34,13 +35,23 @@ func InitMySQL() {
 	dbPass := GetEnv("DB_PASSWORD", "")
 	dbName := GetEnv("DB_NAME", "splatoon")
 	ServerPort = GetEnv("SERVER_PORT", "8080")
+	JwtSecret = GetEnv("JWT_SECRET", "splatoon-dev-secret-key")
 
-	// 连接 MySQL,这里dsn直接从env中读取后拼接
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=True&loc=Local",
-		dbUser, dbPass, dbHost, dbPort, dbName)
+	// 用 go-sql-driver/mysql Config 生成 DSN（修复 Windows MySQL 默认 gbk 导致中文乱码）
+	cfg := msql.Config{
+		User:      dbUser,
+		Passwd:    dbPass,
+		Net:       "tcp",
+		Addr:      fmt.Sprintf("%s:%s", dbHost, dbPort),
+		DBName:    dbName,
+		Collation: "utf8mb4_unicode_ci",
+		Loc:       time.Local,
+		ParseTime: true,
+		Params:    map[string]string{"charset": "utf8mb4"},
+	}
+
 	var err error
-	Db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
-
+	Db, err = gorm.Open(mysql.Open(cfg.FormatDSN()), &gorm.Config{})
 	if err != nil {
 		panic("数据库连接失败：" + err.Error())
 	}
@@ -51,7 +62,7 @@ func InitMySQL() {
 	sqldb.SetConnMaxLifetime(time.Hour)
 
 	if err != nil {
-		log.Fatalf("Error setting database connection pool: %v", err)
+		panic("Error setting database connection pool:" + err.Error())
 	}
 
 	fmt.Println("MySQL 连接成功")

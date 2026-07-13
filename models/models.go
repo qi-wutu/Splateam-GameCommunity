@@ -7,16 +7,18 @@ type User struct {
 	Email    string `gorm:"unique;not null"`
 	Password string `gorm:"not null" `
 	UserName string `gorm:"not null" `
+	Gender   string `gorm:"type:varchar(10);default:'unspecified'"`
 }
 
 type Party struct {
 	gorm.Model
-	Title     string `gorm:"not null"`
-	Game      string `gorm:"not null"`
-	Playernum int    `gorm:"not null"`
-	MaxNum    int    `gorm:"not null"`
-	OwnerID   string `gorm:"type:varchar(191);not null;index"`
-	OwnerName string `gorm:"not null"`
+	Title        string `gorm:"not null"`
+	Game         string `gorm:"not null"`
+	Introduction string `gorm:"type:text"`
+	Playernum    int    `gorm:"not null"`
+	MaxNum       int    `gorm:"not null"`
+	OwnerID      string `gorm:"type:varchar(191);not null;index"`
+	OwnerName    string `gorm:"not null"`
 }
 
 type PartyMember struct {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"splatoon-backend/config"
 	"splatoon-backend/router"
+	"splatoon-backend/service"
+	"splatoon-backend/utils"
 )
 
 func main() {
@@ -11,7 +13,9 @@ func main() {
 	config.LoadEnv()
 	//数据库初始化
 	config.InitMySQL()
-	// Gin 路由
+	utils.InitJWT()
+	// 启动 WebSocket Hub
+	go service.GlobalHub.Run()
 	fmt.Printf("🚀 服务启动在 :%s\n", config.ServerPort)
 	r := router.SetupRouter()
 	r.Run(":" + config.ServerPort)

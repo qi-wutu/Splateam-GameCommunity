@@ -16,6 +16,16 @@ func PartyList(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, parties)
 }
 
+func GetParty(ctx *gin.Context) {
+	pid := ctx.Param("id")
+	detail, err := service.GetPartyDetail(pid)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, detail)
+}
+
 func CreateParty(ctx *gin.Context) {
 	var req service.CreatePartyReq
 	if err := ctx.ShouldBindJSON(&req); err != nil {

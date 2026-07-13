@@ -11,10 +11,23 @@ import (
 )
 
 type CreatePartyReq struct {
-	Title     string `json:"title"`
-	Game      string `json:"game"`
-	Playernum int    `json:"playernum"`
-	MaxNum    int    `json:"maxNum"`
+	Title        string `json:"title"`
+	Game         string `json:"game"`
+	Introduction string `json:"introduction"`
+	Playernum    int    `json:"playernum"`
+	MaxNum       int    `json:"maxNum"`
+}
+
+type MemberInfo struct {
+	UserID   string `json:"userId"`
+	UserName string `json:"userName"`
+	Gender   string `json:"gender"`
+	Status   string `json:"status"`
+}
+
+type PartyDetail struct {
+	models.Party
+	Members []MemberInfo `json:"members"`
 }
 
 func CreateParty(userID string, req *CreatePartyReq) (*models.Party, error) {
@@ -25,12 +38,13 @@ func CreateParty(userID string, req *CreatePartyReq) (*models.Party, error) {
 	}
 
 	party := &models.Party{
-		Title:     req.Title,
-		Game:      req.Game,
-		Playernum: 1,
-		MaxNum:    req.MaxNum,
-		OwnerID:   userID,
-		OwnerName: user.UserName,
+		Title:        req.Title,
+		Game:         req.Game,
+		Introduction: req.Introduction,
+		Playernum:    1,
+		MaxNum:       req.MaxNum,
+		OwnerID:      userID,
+		OwnerName:    user.UserName,
 	}
 
 	if err := config.Db.Create(party).Error; err != nil {
@@ -56,6 +70,43 @@ func GetPartyList() ([]models.Party, error) {
 		return nil, err
 	}
 	return parties, nil
+}
+
+func GetPartyByID(partyID string) (*models.Party, error) {
+	var party models.Party
+	if err := config.Db.Where("id = ?", partyID).First(&party).Error; err != nil {
+		return nil, errors.New("party not found")
+	}
+	return &party, nil
+}
+
+func GetPartyDetail(partyID string) (*PartyDetail, error) {
+	party, err := GetPartyByID(partyID)
+	if err != nil {
+		return nil, err
+	}
+
+	var partyMembers []models.PartyMember
+	config.Db.Where("party_id = ?", party.ID).Find(&partyMembers)
+
+	members := []MemberInfo{}
+	for _, pm := range partyMembers {
+		var user models.User
+		if err := config.Db.Where("id = ?", pm.UserID).First(&user).Error; err != nil {
+			continue
+		}
+		members = append(members, MemberInfo{
+			UserID:   pm.UserID,
+			UserName: user.UserName,
+			Gender:   user.Gender,
+			Status:   pm.Status,
+		})
+	}
+
+	return &PartyDetail{
+		Party:   *party,
+		Members: members,
+	}, nil
 }
 
 func DeleteParty(partyid string, userid string) (*models.Party, error) {

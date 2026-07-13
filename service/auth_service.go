@@ -20,7 +20,7 @@ type Result struct {
 	User  UserInfo `json:"user"`
 }
 
-func Register_user(email string, username string, password string) (*Result, error) {
+func Register_user(email string, username string, password string, gender string) (*Result, error) {
 	//密码哈希
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 10)
 	if err != nil {
@@ -32,11 +32,17 @@ func Register_user(email string, username string, password string) (*Result, err
 	if err == nil {
 		return nil, errors.New("this email has been used")
 	}
+	//性别默认值
+	genderVal := gender
+	if genderVal != "male" && genderVal != "female" {
+		genderVal = "unspecified"
+	}
 	//数据表创建
 	user := models.User{
 		Email:    email,
 		Password: string(hash),
 		UserName: username,
+		Gender:   genderVal,
 	}
 	fmt.Printf("DEBUG username before save: %q\n", user.UserName)
 	if err := config.Db.Create(&user).Error; err != nil {
@@ -53,6 +59,26 @@ func Register_user(email string, username string, password string) (*Result, err
 			Username: user.UserName,
 			Email:    user.Email,
 		},
+	}, nil
+}
+
+type UserProfile struct {
+	ID       uint   `json:"id"`
+	UserName string `json:"userName"`
+	Email    string `json:"email"`
+	Gender   string `json:"gender"`
+}
+
+func GetUserByID(userID string) (*UserProfile, error) {
+	var user models.User
+	if err := config.Db.First(&user, userID).Error; err != nil {
+		return nil, errors.New("user not found")
+	}
+	return &UserProfile{
+		ID:       user.ID,
+		UserName: user.UserName,
+		Email:    user.Email,
+		Gender:   user.Gender,
 	}, nil
 }
 

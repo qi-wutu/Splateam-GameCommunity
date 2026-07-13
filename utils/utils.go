@@ -10,13 +10,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func GenerateJWT(username string) (string, error) {
+var jwtSecret string
+
+func InitJWT() {
+	jwtSecret = config.JwtSecret
+}
+
+func GenerateJWT(userID string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"username": username,
+		"user_id": userID,
 		"exp":      time.Now().Add(time.Hour * 72).Unix(),
 	})
-	signedToken, err := token.SignedString([]byte("secret"))
-	return "Bearer " + signedToken, err
+	signedToken, err := token.SignedString([]byte(jwtSecret))
+	return signedToken, err
 }
 func CheckPassword(password string, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
@@ -34,18 +40,18 @@ func ParseJWT(tokenString string) (string, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("Unexpected Signing Method")
 		}
-		return []byte("secret"), nil
+		return []byte(jwtSecret), nil
 	})
 	if err != nil {
 		return "", err
 	}
-	//第一行类型强转，然后找Username
+	//第一行类型强转，然后找user_id
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		username, ok := claims["username"].(string)
+		userID, ok := claims["user_id"].(string)
 		if !ok {
-			return "", errors.New("Username claim is not success")
+			return "", errors.New("user_id claim is missing")
 		}
-		return username, nil
+		return userID, nil
 	}
 	return "", err
 
