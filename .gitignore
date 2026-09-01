@@ -11,6 +11,18 @@ config/*.env
 *.dylib
 tmp/
 
+# 日志
+*.log
+logs/
+
+# 本地私有文档（不进仓库）
+docs_local/
+
+# WS 压测产物（ws_test/ 下运行时生成）
+ws_test/node_modules/
+ws_test/tokens.txt
+ws_test/*.exe
+
 # IDE
 .vscode/
 .idea/

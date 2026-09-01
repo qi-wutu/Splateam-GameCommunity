@@ -22,7 +22,8 @@
 ├── middlewares/         # Gin 中间件 (JWT 认证)
 ├── utils/               # 工具函数 (JWT 生成/解析)
 ├── router/              # 路由注册
-└── docs/                # 文档
+├── docs/                # 公开文档（进仓库，如 roadmap.md）
+└── docs_local/          # 本地私有文档（被 .gitignore 忽略，不进仓库）
 ```
 
 ## 启动方式

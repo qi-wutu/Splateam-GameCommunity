@@ -38,6 +38,28 @@ func GetCurrentUser(ctx *gin.Context) {
 	ctx.JSON(200, user)
 }
 
+func GetUserOnline(ctx *gin.Context) {
+	userID := ctx.Param("id")
+	online := service.CheckUserOnline(userID)
+	ctx.JSON(200, gin.H{"online": online})
+}
+
+func ActivateAccount(ctx *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+		Code  string `json:"code" binding:"required"`
+	}
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(400, gin.H{"error": "invalid json"})
+		return
+	}
+	if err := service.ActivateUser(req.Email, req.Code); err != nil {
+		ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(200, gin.H{"message": "激活成功，现在可以登录了"})
+}
+
 func Login(ctx *gin.Context) {
 	type Login_Info struct {
 		Email    string `json:"email"`

@@ -3,8 +3,11 @@ package service
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
+
+	"splatoon-backend/config"
 
 	"github.com/gorilla/websocket"
 )
@@ -15,15 +18,21 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 4096
+
+	// Redis 键前缀
+	redisOnlinePrefix = "user:online:"  // + userID → string "online"，带 TTL
+	redisMsgPrefix    = "party:msgs:"   // + partyID → List，存最近 100 条消息 JSON
+	redisMsgMaxLen    = 100             // 每个房间最多缓存 100 条
+	redisOnlineTTL    = pongWait + 10*time.Second // 在线状态 TTL（比 ping 间隔略长）
 )
 
 // ---------- 消息协议 ----------
 type WsMessage struct {
-	Type     string `json:"type"`               // chat / notification / join_room / leave_room
+	Type     string `json:"type"`               // chat / notification / join_room / leave_room / chat_history
 	PartyID  string `json:"partyId,omitempty"`  // 组队ID
 	UserID   string `json:"userId,omitempty"`   // 发送者ID
 	UserName string `json:"userName,omitempty"` // 发送者昵称
-	Content  string `json:"content,omitempty"`  // 消息内容
+	Content  string `json:"content,omitempty"`  // 消息内容（chat_history 时存放 JSON 数组）
 	Time     string `json:"time,omitempty"`     // 时间
 }
 
@@ -74,6 +83,8 @@ func (c *Client) ReadPump() {
 		switch msg.Type {
 		case "join_room":
 			c.Hub.JoinRoom(c, msg.PartyID)
+			// 加入房间后从 Redis 拉聊天历史
+			c.sendChatHistory(msg.PartyID)
 
 		case "leave_room":
 			c.Hub.LeaveRoom(c, msg.PartyID)
@@ -97,8 +108,46 @@ func (c *Client) ReadPump() {
 				Time:     time.Now().Format("15:04"),
 			}
 			c.Hub.BroadcastToRoom(msg.PartyID, reply)
+
+			// ----- 缓存到 Redis -----
+			cacheMessageToRedis(msg.PartyID, reply)
 		}
 	}
+}
+
+// sendChatHistory: 从 Redis 拉取最近消息发给当前客户端
+func (c *Client) sendChatHistory(partyID string) {
+	if config.RedisClient == nil {
+		return
+	}
+
+	msgs, err := config.RedisClient.LRange(config.RedisCtx, redisMsgPrefix+partyID, 0, -1).Result()
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	// Redis 中存的是逐条 JSON，拼成 JSON 数组
+	historyJSON := "[" + strings.Join(msgs, ",") + "]"
+	reply := WsMessage{
+		Type:    "chat_history",
+		PartyID: partyID,
+		Content: historyJSON,
+	}
+	data, _ := json.Marshal(reply)
+	c.Send <- data
+}
+
+// cacheMessageToRedis: 聊天消息写 Redis List 并裁剪长度（只保留最近 N 条）
+func cacheMessageToRedis(partyID string, msg WsMessage) {
+	if config.RedisClient == nil {
+		return
+	}
+
+	data, _ := json.Marshal(msg)
+	key := redisMsgPrefix + partyID
+
+	config.RedisClient.RPush(config.RedisCtx, key, data)
+	config.RedisClient.LTrim(config.RedisCtx, key, int64(-redisMsgMaxLen), -1)
 }
 
 // WritePump: 往 WebSocket 连接写消息
@@ -140,14 +189,18 @@ func (c *Client) WritePump() {
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+			// ----- 心跳续期 Redis 在线状态 -----
+			if config.RedisClient != nil {
+				config.RedisClient.Expire(config.RedisCtx, redisOnlinePrefix+c.UserID, redisOnlineTTL)
+			}
 		}
 	}
 }
 
 // ---------- Hub ----------
 type Hub struct {
-	Clients    map[string]*Client                 // 所有在线客户端 (userID -> *Client)
-	Rooms      map[string]map[string]*Client      // 房间 (partyId -> userID -> *Client)
+	Clients    map[string]*Client            // 所有在线客户端 (userID -> *Client)
+	Rooms      map[string]map[string]*Client // 房间 (partyId -> userID -> *Client)
 	Register   chan *Client
 	Unregister chan *Client
 	mu         sync.RWMutex
@@ -174,6 +227,11 @@ func (h *Hub) Run() {
 			}
 			h.Clients[client.UserID] = client
 			h.mu.Unlock()
+
+			// Redis: 标记在线（断连时 TTL 到期自动过期，Unregister 也会主动删）
+			if config.RedisClient != nil {
+				config.RedisClient.Set(config.RedisCtx, redisOnlinePrefix+client.UserID, "online", redisOnlineTTL)
+			}
 			log.Printf("[WS] 连接: user=%s, 在线: %d", client.UserID, len(h.Clients))
 
 		case client := <-h.Unregister:
@@ -193,6 +251,11 @@ func (h *Hub) Run() {
 				close(client.Send)
 			}
 			h.mu.Unlock()
+
+			// Redis: 移除在线标记
+			if config.RedisClient != nil {
+				config.RedisClient.Del(config.RedisCtx, redisOnlinePrefix+client.UserID)
+			}
 			log.Printf("[WS] 断开: user=%s, 在线: %d", client.UserID, len(h.Clients))
 		}
 	}
@@ -229,15 +292,12 @@ func (h *Hub) BroadcastToRoom(partyID string, msg WsMessage) {
 	data, _ := json.Marshal(msg)
 
 	h.mu.RLock()
-	room, ok := h.Rooms[partyID]
-	h.mu.RUnlock()
+	defer h.mu.RUnlock()
 
+	room, ok := h.Rooms[partyID]
 	if !ok {
 		return
 	}
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
 	for _, client := range room {
 		select {
 		case client.Send <- data:
@@ -263,6 +323,17 @@ func (h *Hub) SendToUser(userID string, msg WsMessage) {
 	case client.Send <- data:
 	default:
 	}
+}
+
+// ---------- Redis 辅助查询（给 HTTP handler 用）----------
+
+// CheckUserOnline 检查用户是否在线（Redis）
+func CheckUserOnline(userID string) bool {
+	if config.RedisClient == nil {
+		return false
+	}
+	val, err := config.RedisClient.Get(config.RedisCtx, redisOnlinePrefix+userID).Result()
+	return err == nil && val == "online"
 }
 
 // ---------- 全局 Hub 实例（供 HTTP handler 调用推送）----------

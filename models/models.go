@@ -7,7 +7,8 @@ type User struct {
 	Email    string `gorm:"unique;not null"`
 	Password string `gorm:"not null" `
 	UserName string `gorm:"not null" `
-	Gender   string `gorm:"type:varchar(10);default:'unspecified'"`
+	Gender   string `gorm:"type:varchar(20);default:'unspecified'"`
+	Active   bool   `gorm:"default:false"` // 邮箱激活后才为 true
 }
 
 type Party struct {

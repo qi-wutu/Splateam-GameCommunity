@@ -16,6 +16,7 @@ func SetupRouter() *gin.Engine {
 	{
 		auth.POST("/register", controller.RegisterUser)
 		auth.POST("/login", controller.Login)
+		auth.POST("/activate", controller.ActivateAccount) // 邮箱激活
 	}
 	r.GET("/api/party", controller.PartyList)
 	r.GET("/api/party/:id", controller.GetParty)
@@ -27,6 +28,7 @@ func SetupRouter() *gin.Engine {
 	api.Use(middlewares.AuthMiddleware())
 	{
 		api.GET("/user/me", controller.GetCurrentUser)
+		api.GET("/user/:id/online", controller.GetUserOnline)
 		api.POST("/party", controller.CreateParty)
 		api.DELETE("/party/:id", controller.DeleteParty)
 		api.POST("/party/:id/join", controller.JoinParty)
