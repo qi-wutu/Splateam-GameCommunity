@@ -18,6 +18,10 @@ logs/
 # 本地私有文档（不进仓库）
 docs_local/
 
+# 严禁提交 yml/yaml（曾泄露数据库密码，一律排除）
+*.yml
+*.yaml
+
 # WS 压测产物（ws_test/ 下运行时生成）
 ws_test/node_modules/
 ws_test/tokens.txt
