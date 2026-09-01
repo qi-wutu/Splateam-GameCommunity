@@ -22,6 +22,13 @@ docs_local/
 *.yml
 *.yaml
 
+# Agent 副产物（AI 工具生成的配置/记录，不进仓库）
+.claude/
+.cursor/
+.aider/
+.codeium/
+.continue/
+
 # WS 压测产物（ws_test/ 下运行时生成）
 ws_test/node_modules/
 ws_test/tokens.txt
