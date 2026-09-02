@@ -1,114 +1,177 @@
-# Splatoon 组队平台 (后端)
+# Splatoon 实时组队平台 · 后端
 
-一个用 Go 实现的 Splatoon 游戏组队平台后端 API。
+一个用 Go 实现的 **Splatoon 游戏组队平台后端** —— 不止于 CRUD，还带 **WebSocket 实时聊天**、**RabbitMQ 异步邮件**、**Redis 在线状态缓存**与**优雅降级**。作为一个能讲清"为什么这么设计"的完整后端。
+
+> 配套：`splatoon-front` / `splatoon_fronted` / `splatoon-web-app-ai` / `splatoon_platform` 为工作区里的兄弟前端项目（本仓库仅后端）。
+
+---
 
 ## 技术栈
 
-- **语言：** Go 1.26
-- **框架：** Gin
-- **数据库：** MySQL + GORM
-- **认证：** JWT (bcrypt 密码哈希)
+| 层 | 技术 |
+|---|---|
+| 语言 / 框架 | Go 1.26 · Gin |
+| 数据库 | MySQL 8.0 + GORM（AutoMigrate，自动建表） |
+| 认证 | JWT（HS256，72h）+ bcrypt 密码哈希 |
+| 实时通讯 | gorilla/websocket |
+| 消息队列 | RabbitMQ（amqp091-go，topic 交换机） |
+| 缓存 / 状态 | Redis（go-redis/v9） |
+| 邮件 | net/smtp（QQ 邮箱 / 通用 SMTP） |
 
-## 项目结构
+---
+
+## 亮点特性
+
+**账号体系**
+- 注册 → bcrypt 哈希 → 生成 6 位激活码（Redis，30 分钟 TTL，Redis 不可用时内存兜底）→ **RabbitMQ 异步**发送激活邮件
+- 登录 → 签发 JWT（HS256，携带 `user_id` + `exp`）；`bcrypt` 比对密码
+- 激活校验 + JWT 启动自检（`ValidateJWT`：**空 / 公开默认值 / 过短密钥直接拒绝启动**，杜绝认证绕过）
+
+**组队（Party）**
+- 创建 / 列表 / 详情（含成员）/ 删除（仅创建者，软删成员）
+- 加入 / 退出：**JoinParty 已做人数上限校验**（`playernum < MaxNum`），人满拒绝；退队硬删避免唯一索引冲突
+
+**实时聊天（WebSocket）**
+- 全局 `Hub`（单 RWMutex 管理 `Clients` / `Rooms`），每连接独立 `ReadPump` / `WritePump` 双 goroutine
+- 心跳 ping/pong，写缓冲(256) 满时**非阻塞丢包**（有意的背压策略）
+- 聊天消息经 Redis 缓存**最近 100 条**，进房拉历史；在线状态写 Redis 带 TTL
+- 同一 `user_id` 重复连接会**踢掉旧连接**（防重复登录）
+
+**异步邮件链路**
+- 注册 → 激活码（Redis/内存）→ MQ(topic `splatoon.events`) → `mail.welcome` 队列 → `mail_worker` 消费 → SMTP 发信（手动 ack）
+
+**优雅降级（生产可用思维）**
+- Redis / RabbitMQ / SMTP **连接失败均非致命**：打印警告并降级（激活码打印到控制台 / 消息走内存 / 邮件跳过），不影响启动
+
+**性能压测工具**（`ws_test/`）
+- k6（两种模式：并发连接数 / 消息吞吐）、端到端 e2e 脚本、独立的 Go 负载生成器
+- 实测：单机渐进建连可支撑约 **3 万条并发长连接（握手零失败）**；同房间 200 客户端广播约 24.7 万消息/秒（约 38% 因缓冲满被有意丢弃）
+- 详见 [ws_test/README-k6.md](ws_test/README-k6.md)
+
+---
+
+## 架构
 
 ```
-├── main.go              # 程序入口
-├── config/
-│   ├── .env             # 环境变量
-│   └── config.go        # 配置 & 数据库初始化
-├── controller/          # HTTP 请求处理
-├── service/             # 业务逻辑层
-├── models/              # 数据模型
-├── middlewares/         # Gin 中间件 (JWT 认证)
-├── utils/               # 工具函数 (JWT 生成/解析)
-├── router/              # 路由注册
-├── docs/                # 公开文档（进仓库，如 roadmap.md）
-└── docs_local/          # 本地私有文档（被 .gitignore 忽略，不进仓库）
+客户端（浏览器/前端）
+   │  ── HTTP REST ────────────────────────── WebSocket ──  │
+   ▼                                                        ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Gin (router.go) + middlewares: CORS · AuthMiddleware(JWT)       │
+│  ├─ controller_user.go  ─► service/auth_service.go               │
+│  ├─ controller_party.go ─► service/party_service.go              │
+│  └─ controller_ws.go    ─► service/ws_service.go  (Hub)          │
+└──────────────┬───────────────────────────────┬───────────────────┘
+               │ GORM                          │ Redis / MQ / SMTP
+               ▼                               ▼
+        MySQL                                  Redis     ──► RabbitMQ ──► mail_worker ──► SMTP
+   User / Party / PartyMember          在线状态·消息缓存·激活码
 ```
 
-## 启动方式
+**模块职责**
+- `controller/` — 参数解析 / 绑定 JSON / 返回响应
+- `service/` — 业务逻辑；`ws_service.go` 为 WebSocket Hub（在线表、房间、广播）
+- `middlewares/` — CORS 与 JWT 认证中间件
+- `models/` — GORM 数据模型
+- `router/` — 路由注册
+- `config/` — 环境变量配置 + MySQL/Redis/RabbitMQ 初始化
 
-### 前置要求
+---
 
-- Go 1.21+
-- MySQL 8.0+
-
-### 1. 配置数据库
-
-在 `config/.env` 中填写数据库信息（已默认配置）：
+## 库表关系
 
 ```
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=splatoon
+User  (id uint PK, email unique, password, user_name, gender, active)
+   │ 1
+   │
+   ├──── N  Party      Party.owner_id → User.id（创建者）
+   │
+   └──── N  PartyMember   PartyMember.user_id → User.id
+                             PartyMember.party_id → Party.id
+
+Party      (id uint PK, title, game, introduction, playernum, max_num, owner_id, owner_name)
+PartyMember(id uint PK, party_id, user_id, status)
 ```
 
-### 2. 创建数据库
+---
 
-```sql
-CREATE DATABASE splatoon CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+## 目录结构
+
+```
+├── main.go          # 入口：LoadEnv → ValidateJWT → InitMySQL/Redis/RabbitMQ → 启动 Hub + mail worker
+├── config/          # .env / .env.example / config.go / redis.go / rabbitmq.go
+├── controller/      # HTTP 处理
+├── service/         # auth / party / ws_service(Hub) / mail_worker
+├── middlewares/     # CORS、AuthMiddleware
+├── models/          # User / Party / PartyMember
+├── router/          # 路由
+├── utils/           # JWT 签发/解析、bcrypt
+├── docs/            # roadmap.md（公开文档）
+└── ws_test/         # 压测、e2e
 ```
 
-### 3. 启动
+---
+
+## 本地部署
+
+前端先配置好环境变量（参照 `.env.example`）：
 
 ```bash
-go run main.go
+cp config/.env.example config/.env
+# 编辑 config/.env：DB_*、JWT_SECRET（≥32字符强随机）、SMTP_*（可选）
 ```
 
-服务启动在 `http://localhost:8080`，数据库表会自动迁移创建。
+所需依赖：
+
+| 依赖 | 是否必须 | 不配会怎样 |
+|---|---|---|
+| MySQL | **必须** | 启动 panic |
+| Redis | 可选 | 在线状态/消息缓存/激活码降级（内存兜底） |
+| RabbitMQ | 可选 | 激活码打印到控制台，邮件 worker 不启动 |
+| JWT_SECRET | **必须**（强随机≥32） | `ValidateJWT` 拒绝启动 |
+
+启动：
+
+```bash
+go run .
+# 可用：http://localhost:8080
+```
+
+> 注：数据库表由 GORM `AutoMigrate` 自动创建；`SERVER_PORT` 默认 `8080`。
+
+---
 
 ## API 接口
 
-### 公开接口
+### 公开
 
 | 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/register` | 注册 |
-| POST | `/api/auth/login` | 登录 |
+|---|---|---|
+| POST | `/api/auth/register` | 注册（返回用户信息 + 触发激活邮件） |
+| POST | `/api/auth/login` | 登录（返回 JWT token） |
+| POST | `/api/auth/activate` | 邮箱激活（body: `{email, code}`） |
 | GET | `/api/party` | 组队列表 |
-| GET | `/api/party/:id` | 组队详情 |
+| GET | `/api/party/:id` | 组队详情（含成员） |
+| GET | `/api/ws?token=` | WebSocket 握手（`token` 为 JWT） |
 
-### 需要认证的接口
-
-在请求头中带上 `Authorization: Bearer <token>`：
+### 需认证（`Authorization: Bearer <token>`）
 
 | 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/party` | 创建组队 |
+|---|---|---|
+| GET | `/api/user/me` | 当前用户信息 |
+| GET | `/api/user/:id/online` | 用户是否在线 |
+| POST | `/api/party` | 创建组队（创建者自动入队，`playernum=1`） |
 | DELETE | `/api/party/:id` | 删除组队（仅创建者） |
-| POST | `/api/party/:id/join` | 加入组队 |
+| POST | `/api/party/:id/join` | 加入组队（**满员拒绝**） |
 | POST | `/api/party/:id/leave` | 退出组队 |
 
-## 测试流程
+---
 
-```bash
-# 1. 注册
-curl -X POST http://localhost:8080/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"123456","userName":"Tester"}'
+## 相关文档
 
-# 2. 登录（保存返回的 token）
-curl -X POST http://localhost:8080/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"123456"}'
+- [docs/roadmap.md](docs/roadmap.md) — Roadmap / 待办（含全局 Hub 单锁并发瓶颈 issue）
+- [ws_test/README-k6.md](ws_test/README-k6.md) — WebSocket 压测说明与实测结果
 
-# 3. 创建组队（替换 <token>）
-curl -X POST http://localhost:8080/api/party \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"今晚打工","game":"Splatoon 3","maxNum":4}'
+## License
 
-# 4. 查看列表
-curl http://localhost:8080/api/party
-```
-
-## 开发状态
-
-MVP 已完成，核心功能：
-- ✅ 用户注册 / 登录
-- ✅ JWT 认证中间件
-- ✅ 组队 CRUD（创建 / 列表 / 详情 / 删除）
-- ✅ 加入 / 退出组队
-- ✅ 软删除
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

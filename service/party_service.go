@@ -133,6 +133,17 @@ func JoinParty(userID string, partyID string) (*models.PartyMember, error) {
 	if utils.RuserinP(userID, partyID) {
 		return nil, errors.New("You are already in the party")
 	}
+
+	// 取 party 并校验人数上限（人满不可再进）。
+	// 注：单实例部署下"先查后插"可接受；若要多实例/高并发，需改用原子条件更新或 SELECT ... FOR UPDATE。
+	party, err := GetPartyByID(partyID)
+	if err != nil {
+		return nil, err
+	}
+	if party.MaxNum <= 0 || party.Playernum >= party.MaxNum {
+		return nil, errors.New("party is full")
+	}
+
 	//格式转换string->uint
 	id, err := strconv.ParseUint(partyID, 10, 64)
 	if err != nil {
@@ -148,7 +159,10 @@ func JoinParty(userID string, partyID string) (*models.PartyMember, error) {
 	}
 
 	// 加入后当前人数 +1
-	config.Db.Model(&models.Party{}).Where("id = ?", id).Update("playernum", gorm.Expr("playernum + 1"))
+	if err := config.Db.Model(&models.Party{}).Where("id = ?", id).
+		Update("playernum", gorm.Expr("playernum + 1")).Error; err != nil {
+		return nil, errors.New("Update playernum failed")
+	}
 	return &member, nil
 }
 
