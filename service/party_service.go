@@ -51,6 +51,9 @@ func CreateParty(userID string, req *CreatePartyReq) (*models.Party, error) {
 		return nil, err
 	}
 
+	// 新建 party 后把 id 增量写入列表索引（索引未就绪时由读取端重建兜底）
+	partyListIndexZAdd(party.ID, party.CreatedAt)
+
 	// 创建者自动加入成员表
 	member := &models.PartyMember{
 		PartyID: party.ID,
@@ -64,12 +67,75 @@ func CreateParty(userID string, req *CreatePartyReq) (*models.Party, error) {
 	return party, nil
 }
 
-func GetPartyList() ([]models.Party, error) {
-	var parties []models.Party
-	if err := config.Db.Order("created_at desc").Find(&parties).Error; err != nil {
+// GetPartyList 分页返回组队列表（created_at desc, id desc）。
+// 游标 + Redis ZSET 索引：先取「严格早于游标」的一页 id，再回表取整行，避免全表 ORDER BY。
+// cursor 为空表示第一页；limit 缺省用 PartyListPageSize，上限 PartyListMaxPageSize。
+func GetPartyList(cursor string, limit int) (*PartyListPage, error) {
+	if limit <= 0 {
+		limit = PartyListPageSize
+	}
+	if limit > PartyListMaxPageSize {
+		limit = PartyListMaxPageSize
+	}
+	cur, err := parsePartyCursor(cursor)
+	if err != nil {
 		return nil, err
 	}
-	return parties, nil
+
+	// 索引未就绪（Redis 不可用 / 尚未建立）时降级：直接按 DB 全量分页，逻辑仍正确。
+	if !partyListIndexReady() {
+		return getPartyListFromDB(cur, limit)
+	}
+
+	// 多取 1 个用于判断 isMore，再裁成 limit 个
+	cand := seekPartyIDs(cur, limit+1)
+	hasMore := len(cand) > limit
+	if hasMore {
+		cand = cand[:limit]
+	}
+
+	rows, err := fetchPartyRows(cand)
+	if err != nil {
+		return nil, err
+	}
+	// 索引里可能残留已删除（软删）的 id：回表查不到 → 顺手清理索引
+	for _, id := range cand {
+		if _, ok := rows[id]; !ok {
+			partyListIndexZRem(id)
+		}
+	}
+	parties := orderPartyRows(rows, cand)
+
+	next := ""
+	if len(parties) > 0 {
+		last := parties[len(parties)-1]
+		next = encodePartyCursor(last.CreatedAt, last.ID)
+	}
+	return &PartyListPage{Items: parties, NextCursor: next, HasMore: hasMore}, nil
+}
+
+// getPartyListFromDB 降级路径：Redis 不可用 / 索引缺失时直接查 DB。
+// 用 join 条件实现 keyset（created_at, id 双条件），语义与 Redis 路径保持一致。
+func getPartyListFromDB(cur *partyCursor, limit int) (*PartyListPage, error) {
+	q := config.Db.Model(&models.Party{}).Order("created_at desc, id desc")
+	if !cur.isEmpty() {
+		q = q.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			cur.CreatedAt, cur.CreatedAt, cur.ID)
+	}
+	var parties []models.Party
+	if err := q.Limit(limit + 1).Find(&parties).Error; err != nil {
+		return nil, err
+	}
+	hasMore := len(parties) > limit
+	if hasMore {
+		parties = parties[:limit]
+	}
+	next := ""
+	if len(parties) > 0 {
+		last := parties[len(parties)-1]
+		next = encodePartyCursor(last.CreatedAt, last.ID)
+	}
+	return &PartyListPage{Items: parties, NextCursor: next, HasMore: hasMore}, nil
 }
 
 func GetPartyByID(partyID string) (*models.Party, error) {
@@ -123,6 +189,8 @@ func DeleteParty(partyid string, userid string) (*models.Party, error) {
 		if err := config.Db.Where("id=?", partyid).Delete(&exist).Error; err != nil {
 			return nil, err
 		}
+		// 删除后同步从列表索引移除（软删行不会被列表查询返回，此处为主动清理）
+		partyListIndexZRem(exist.ID)
 	} else {
 		return nil, errors.New("only owner have right")
 	}

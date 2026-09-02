@@ -3,17 +3,27 @@ package controller
 import (
 	"net/http"
 	"splatoon-backend/service"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
+// PartyList 组队列表（分页）。query: cursor=..., limit=...
+// cursor 来自上一页响应的 nextCursor，第一页可省略。
 func PartyList(ctx *gin.Context) {
-	parties, err := service.GetPartyList()
+	cursor := ctx.Query("cursor")
+	limit := 0
+	if l := ctx.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil {
+			limit = n
+		}
+	}
+	page, err := service.GetPartyList(cursor, limit)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, parties)
+	ctx.JSON(http.StatusOK, page)
 }
 
 func GetParty(ctx *gin.Context) {

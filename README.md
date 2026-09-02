@@ -150,9 +150,11 @@ go run .
 | POST | `/api/auth/register` | 注册（返回用户信息 + 触发激活邮件） |
 | POST | `/api/auth/login` | 登录（返回 JWT token） |
 | POST | `/api/auth/activate` | 邮箱激活（body: `{email, code}`） |
-| GET | `/api/party` | 组队列表 |
+| GET | `/api/party?limit=&cursor=` | 组队列表（**游标分页**，返回 `{items, nextCursor, hasMore}`） |
 | GET | `/api/party/:id` | 组队详情（含成员） |
 | GET | `/api/ws?token=` | WebSocket 握手（`token` 为 JWT） |
+
+> `GET /api/party` 走**游标分页 + Redis ZSET 索引缓存**：`limit`（默认 10，上限 50）+ `cursor`（来自上一页 `nextCursor`，首屏省略）。响应为 `{items, nextCursor, hasMore}`。入口见 [service/party_cache.go](service/party_cache.go)。
 
 ### 需认证（`Authorization: Bearer <token>`）
 
