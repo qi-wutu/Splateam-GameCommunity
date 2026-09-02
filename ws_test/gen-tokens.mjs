@@ -10,12 +10,12 @@
 // 生成的 token 用 HS256 + 与服务器一致的 secret 签名，claim 只含 user_id + exp，
 // 与 utils/utils.go 的 GenerateJWT 一致，会在 ParseJWT（仅校验签名 + user_id）时通过。
 // 这些 user_id 不需要真实存在于数据库：chat 时 GetUserByID 查不到会 fallback 用 userID 当昵称。
+// 注意：secret 必须与服务端 config/.env 的 JWT_SECRET 一致（auth bug 已修复，不再接受空密钥）。
 import { createHmac } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 const N = parseInt(process.argv[2] || "1000", 10);
-// 优先取第 3 个参数（允许为空字符串）；否则取环境变量；再否则用默认值。
-// 注意：若服务端 utils.InitJWT() 未被调用（jwtSecret 为空），生成 token 需传空 secret 才能被接受。
+// 优先取第 3 个参数；否则取环境变量；再否则用默认值（需与服务端 JWT_SECRET 一致才有效）。
 const SECRET = process.argv.length > 3 ? process.argv[3] : (process.env.JWT_SECRET || "splatoon-dev-secret-key");
 const PREFIX = process.argv[4] || "load";
 

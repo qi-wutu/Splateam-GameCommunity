@@ -10,10 +10,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret string
-
-func InitJWT() {
-	jwtSecret = config.JwtSecret
+// signingKey 直接读 config.JwtSecret。
+// 此前 JWT 密钥放在独立的 jwtSecret 变量里、需经由 InitJWT() 手动拷贝。
+// 而 InitJWT() 从未被调用，导致 signing key 一直为空字符串 => 任何 token 都可用空密钥伪造（认证绕过）。
+// 改为每次读取 config.JwtSecret 后，密钥始终与配置一致，不会再出现空密钥。
+func signingKey() []byte {
+	return []byte(config.JwtSecret)
 }
 
 func GenerateJWT(userID string) (string, error) {
@@ -21,7 +23,7 @@ func GenerateJWT(userID string) (string, error) {
 		"user_id": userID,
 		"exp":      time.Now().Add(time.Hour * 72).Unix(),
 	})
-	signedToken, err := token.SignedString([]byte(jwtSecret))
+	signedToken, err := token.SignedString(signingKey())
 	return signedToken, err
 }
 func CheckPassword(password string, hash string) bool {
@@ -40,7 +42,7 @@ func ParseJWT(tokenString string) (string, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("Unexpected Signing Method")
 		}
-		return []byte(jwtSecret), nil
+		return signingKey(), nil
 	})
 	if err != nil {
 		return "", err

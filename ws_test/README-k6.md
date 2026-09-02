@@ -122,7 +122,7 @@ MODE=throughput TP_VUS=200 DURATION=60s PARTY_ID=1 SEND_INTERVAL_MS=200 ./run-k6
 2. **MySQL 正常**：每条 chat 都触发一次 `GetUserByID`（用户不存在→快速回退），所以吞吐里含真实 DB 查询。
 3. **压测机与服务器同一台**：二者抢 CPU/内存，数字是"单机同时扛压测+服务"的表现，比纯服务器略保守。
 4. **突发批量连接会被 Windows 拒绝**：一次性 SYN 洪峰会溢出发送接受队列，约 700 条后开始 `ECONNREFUSED`；真实用户渐进接入不会这样。生产要高并发需调大 `somaxconn` 或前置负载均衡。
-5. **JWT secret 为空**（见上）：因为 `utils.InitJWT()` 从未被调用，`jwtSecret` 实为空串，本机测试用空 secret 签的 token。
+5. **JWT 密钥**：auth bug（`utils.InitJWT()` 未被调用导致空密钥）已修复，服务端现在用 `config/.env` 的 `JWT_SECRET` 签名/校验。`run-k6.sh` 会从该文件读取并传给 `gen-tokens.mjs`，生成与服务器一致的 token；否则握手会被拒绝。
 
 > 简历上建议这么写（诚实且站得住）：
 > "WebSocket 单机压测：在单机部署、渐进建连下支撑约 3 万条并发长连接（握手零失败）；200 客户端同房间广播时服务端约可投递 2.4w 万条/秒消息，并定位到广播缓冲满时服务端会静默丢包。"

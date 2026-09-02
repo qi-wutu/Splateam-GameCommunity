@@ -16,10 +16,13 @@ DURATION="${DURATION:-60s}"
 SEND_INTERVAL_MS="${SEND_INTERVAL_MS:-200}"
 WS_BASE="${WS_BASE:-ws://localhost:8080/api/ws}"
 PARTY_ID="${PARTY_ID:-1}"
-# 注意：当前服务端 utils.InitJWT() 从未被调用，jwtSecret 实际为空串。
-# 所以生成的 token 必须用空 secret 签名才会被服务端接受。若你修复了该 bug（在 main 里调用 InitJWT），
-# 请把 secret 换成 config/.env 里的 JWT_SECRET 值。
+# 服务端现在用 config/.env 里的 JWT_SECRET 签名/校验 token（auth bug 已修复）。
+# 生成 token 需传入同一 secret，否则握手会被拒绝。默认从 config/.env 读取，也可用环境变量覆盖。
+ENV_FILE="$(dirname "$0")/../config/.env"
 JWT_SECRET="${JWT_SECRET:-}"
+if [ -z "$JWT_SECRET" ] && [ -f "$ENV_FILE" ]; then
+  JWT_SECRET="$(grep -E '^JWT_SECRET=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+fi
 HOLD_MS="${HOLD_MS:-600000}"
 
 if ! command -v k6 >/dev/null 2>&1; then

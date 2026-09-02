@@ -10,6 +10,10 @@ import (
 func main() {
 	// 加载 .env 文件
 	config.LoadEnv()
+	// 校验 JWT 密钥：空 / 默认值 / 过短时直接拒绝启动，避免带病运行
+	if err := config.ValidateJWT(); err != nil {
+		panic(err)
+	}
 	//数据库初始化
 	config.InitMySQL()
 	config.InitRedis()
