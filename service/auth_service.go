@@ -45,7 +45,6 @@ func Register_user(email string, username string, password string, gender string
 		Gender:   genderVal,
 		Active:   false,
 	}
-	fmt.Printf("DEBUG username before save: %q\n", user.UserName)
 	if err := config.Db.Create(&user).Error; err != nil {
 		return nil, errors.New("Create Data failed")
 	}

@@ -15,6 +15,10 @@ tmp/
 *.log
 logs/
 
+# 覆盖率产物
+cover.out
+coverage.out
+
 # 本地私有文档（不进仓库）
 docs_local/
 

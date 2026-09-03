@@ -32,12 +32,12 @@ import (
 // 索引带随机化短 TTL，过期后由下一次读取重建（带进程内锁防穿透）。
 
 const (
-	partyListIndexKey   = "party:list:ids"                                   // ZSET：id -> created_at 排序
-	partyListIndexTTL   = 45 * time.Second                                   // 基础 TTL
-	partyListIndexTTLJ  = 15 * time.Second                                   // TTL 随机抖动
-	partyListIndexSlack = 8                                                  // 游标页多取的候选数（用于同毫秒 tie + 清理已删除 id）
-	PartyListPageSize   = 10                                                 // 默认每页
-	PartyListMaxPageSize = 50                                                // 每页上限
+	partyListIndexKey    = "party:list:ids" // ZSET：id -> created_at 排序
+	partyListIndexTTL    = 45 * time.Second // 基础 TTL
+	partyListIndexTTLJ   = 15 * time.Second // TTL 随机抖动
+	partyListIndexSlack  = 8                // 游标页多取的候选数（用于同毫秒 tie + 清理已删除 id）
+	PartyListPageSize    = 10               // 默认每页
+	PartyListMaxPageSize = 50               // 每页上限
 )
 
 // PartyListPage 是 /api/party 的分页返回体。
