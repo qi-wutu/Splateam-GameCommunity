@@ -197,39 +197,41 @@ func DeleteParty(partyid string, userid string) (*models.Party, error) {
 	return &exist, nil
 }
 
+// errPartyFull 内部哨兵错误：标识"人数已满"，用于事务回滚后在 Transaction 外区分错误原因。
+var errPartyFull = errors.New("party is full")
+
 func JoinParty(userID string, partyID string) (*models.PartyMember, error) {
 	if utils.RuserinP(userID, partyID) {
 		return nil, errors.New("You are already in the party")
 	}
 
-	// 取 party 并校验人数上限（人满不可再进）。
-	// 注：单实例部署下"先查后插"可接受；若要多实例/高并发，需改用原子条件更新或 SELECT ... FOR UPDATE。
-	party, err := GetPartyByID(partyID)
-	if err != nil {
-		return nil, err
-	}
-	if party.MaxNum <= 0 || party.Playernum >= party.MaxNum {
-		return nil, errors.New("party is full")
-	}
-
-	//格式转换string->uint
 	id, err := strconv.ParseUint(partyID, 10, 64)
 	if err != nil {
 		return nil, errors.New("invalid party id")
 	}
-	member := models.PartyMember{
-		PartyID: uint(id),
-		UserID:  userID,
-		Status:  "JOINED",
-	}
-	if err := config.Db.Create(&member).Error; err != nil {
-		return nil, errors.New("Create partymember failed")
-	}
 
-	// 加入后当前人数 +1
-	if err := config.Db.Model(&models.Party{}).Where("id = ?", id).
-		Update("playernum", gorm.Expr("playernum + 1")).Error; err != nil {
-		return nil, errors.New("Update playernum failed")
+	// 原子条件预订一个名额：仅在未满时 playernum+1，RowsAffected==0 说明已满/不存在。
+	// 旧实现"先读 playernum 再 +1"在并发下会都读到旧值导致超员；改用原子条件更新，
+	// 并把「占位」与「插入成员」放进同一事务，失败一并回滚，保证人数与成员表一致。
+	var member models.PartyMember
+	txErr := config.Db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&models.Party{}).
+			Where("id = ? AND max_num > 0 AND playernum < max_num", id).
+			Update("playernum", gorm.Expr("playernum + 1"))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errPartyFull
+		}
+		member = models.PartyMember{PartyID: uint(id), UserID: userID, Status: "JOINED"}
+		return tx.Create(&member).Error
+	})
+	if txErr != nil {
+		if errors.Is(txErr, errPartyFull) {
+			return nil, errPartyFull
+		}
+		return nil, errors.New("Join party failed")
 	}
 	return &member, nil
 }
