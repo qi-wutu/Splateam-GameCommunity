@@ -38,11 +38,12 @@ type WsMessage struct {
 
 // ---------- Client ----------
 type Client struct {
-	Hub    *Hub
-	Conn   *websocket.Conn
-	Send   chan []byte
-	UserID string
-	Rooms  map[string]bool // 当前在哪些房间 (partyId -> true)
+	Hub      *Hub
+	Conn     *websocket.Conn
+	Send     chan []byte
+	UserID   string
+	UserName string        // 发送者昵称缓存：连接期间只查一次库
+	Rooms    map[string]bool // 当前在哪些房间 (partyId -> true)
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn, userID string) *Client {
@@ -93,24 +94,19 @@ func (c *Client) ReadPump() {
 			if msg.PartyID == "" || msg.Content == "" {
 				continue
 			}
-			// 查发送者信息
-			user, err := GetUserByID(c.UserID)
-			userName := c.UserID
-			if err == nil {
-				userName = user.UserName
-			}
+			// 发送者昵称：连接期间缓存，不再每条消息查库
 			reply := WsMessage{
 				Type:     "chat",
 				PartyID:  msg.PartyID,
 				UserID:   c.UserID,
-				UserName: userName,
+				UserName: c.displayName(),
 				Content:  msg.Content,
 				Time:     time.Now().Format("15:04"),
 			}
 			c.Hub.BroadcastToRoom(msg.PartyID, reply)
 
-			// ----- 缓存到 Redis -----
-			cacheMessageToRedis(msg.PartyID, reply)
+			// ----- 缓存到 Redis（异步，不阻塞读路径） -----
+			cacheMessageAsync(msg.PartyID, reply)
 		}
 	}
 }
@@ -137,7 +133,21 @@ func (c *Client) sendChatHistory(partyID string) {
 	c.Send <- data
 }
 
-// cacheMessageToRedis: 聊天消息写 Redis List 并裁剪长度（只保留最近 N 条）
+// displayName: 发送者昵称，连接期间只查一次库并缓存；查不到则退化为 UserID。
+func (c *Client) displayName() string {
+	if c.UserName != "" {
+		return c.UserName
+	}
+	if user, err := GetUserByID(c.UserID); err == nil {
+		c.UserName = user.UserName
+	} else {
+		c.UserName = c.UserID
+	}
+	return c.UserName
+}
+
+// cacheMessageToRedis: 同步写 Redis List 并裁剪长度（只保留最近 N 条）。
+// 供后台 worker 与基准测试调用；热路径请用 cacheMessageAsync。
 func cacheMessageToRedis(partyID string, msg WsMessage) {
 	if config.RedisClient == nil {
 		return
@@ -148,6 +158,54 @@ func cacheMessageToRedis(partyID string, msg WsMessage) {
 
 	config.RedisClient.RPush(config.RedisCtx, key, data)
 	config.RedisClient.LTrim(config.RedisCtx, key, int64(-redisMsgMaxLen), -1)
+}
+
+// ---------- 异步 Redis 缓存（聊天历史）----------
+// 聊天消息热路径只入队、不阻塞；由 cacheWorkers 个后台协程真正写 Redis。
+// 队列满则丢弃本次历史缓存——与 BroadcastToRoom 的"缓冲满丢消息"策略一致，
+// 避免 Redis 变慢或抖动拖死 ReadPump。
+
+type redisCacheJob struct {
+	partyID string
+	msg     WsMessage
+}
+
+const (
+	cacheJobQueue = 4096 // 未落盘缓存任务上限
+	cacheWorkers  = 2    // 写 Redis 的后台协程数
+)
+
+var (
+	cacheJobs = make(chan redisCacheJob, cacheJobQueue)
+	cacheOnce sync.Once
+)
+
+func cacheWorker() {
+	for j := range cacheJobs {
+		cacheMessageToRedis(j.partyID, j.msg)
+	}
+}
+
+// ensureCacheWorkers 惰性启动后台协程（首个任务到来时）。
+func ensureCacheWorkers() {
+	cacheOnce.Do(func() {
+		for i := 0; i < cacheWorkers; i++ {
+			go cacheWorker()
+		}
+	})
+}
+
+// cacheMessageAsync: 聊天消息热路径用——入队即返回，不触碰 Redis，零阻塞。
+func cacheMessageAsync(partyID string, msg WsMessage) {
+	if config.RedisClient == nil {
+		return
+	}
+	ensureCacheWorkers()
+	select {
+	case cacheJobs <- redisCacheJob{partyID: partyID, msg: msg}:
+	default:
+		// 队列满，丢弃，保证读路径不被 Redis 拖死
+	}
 }
 
 // WritePump: 往 WebSocket 连接写消息
